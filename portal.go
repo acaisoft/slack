@@ -1476,10 +1476,6 @@ func (portal *Portal) ConvertSlackMessage(userTeam *database.UserTeam, msg *slac
 		var err error
 		if file.URLPrivate != "" {
 			err = userTeam.Client.GetFile(file.URLPrivate, &data)
-			if err == slack.SlackFileHTMLError {
-				time.Sleep(5 * time.Second)
-				err = userTeam.Client.GetFile(file.URLPrivate, &data)
-			}
 		} else if file.PermalinkPublic != "" {
 			client := http.Client{}
 			var resp *http.Response
@@ -1686,19 +1682,19 @@ func (portal *Portal) HandleSlackTyping(user *User, userTeam *database.UserTeam,
 	}
 }
 
-func (portal *Portal) HandleSlackChannelMarked(user *User, userTeam *database.UserTeam, msg *slack.ChannelMarkedEvent) {
+func (portal *Portal) HandleSlackChannelMarked(user *User, userTeam *database.UserTeam, msgUser, msgTs string) {
 	if portal.MXID == "" {
 		return
 	}
 	puppet := portal.bridge.GetPuppetByCustomMXID(user.MXID)
 	if puppet == nil {
-		portal.log.Errorfln("Not marking room as read: can't find puppet for Slack user %s", msg.User)
+		portal.log.Errorfln("Not marking room as read: can't find puppet for Slack user %s", msgUser)
 		return
 	}
 	puppet.UpdateInfo(userTeam, nil)
 	intent := puppet.IntentFor(portal)
 
-	message := portal.bridge.DB.Message.GetBySlackID(portal.Key, msg.Timestamp)
+	message := portal.bridge.DB.Message.GetBySlackID(portal.Key, msgTs)
 
 	if message == nil {
 		portal.log.Debugfln("Couldn't mark portal %s as read: no Matrix room", portal.Key)

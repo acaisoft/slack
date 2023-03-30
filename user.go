@@ -389,15 +389,17 @@ func (user *User) leavePortals(userTeam *database.UserTeam) {
 func (user *User) slackMessageHandler(userTeam *database.UserTeam) {
 	user.log.Debugfln("Start receiving Slack events for %s", userTeam.Key)
 	for msg := range userTeam.RTM.IncomingEvents {
-		switch event := msg.Data.(type) {
+		switch ev := msg.Data.(type) {
+		case *slack.DesktopNotificationEvent:
+			user.log.Debugfln("ignoring desktop notification: %s", ev)
 		case *slack.ConnectingEvent:
-			user.log.Debugfln("connecting: attempt %d", event.Attempt)
+			user.log.Debugfln("connecting: attempt %d", ev.Attempt)
 			user.BridgeStates[userTeam.Key.TeamID].Send(status.BridgeState{StateEvent: status.StateConnecting})
 		case *slack.ConnectedEvent:
 			// Update all of our values according to what the server has for us.
-			userTeam.Key.SlackID = event.Info.User.ID
-			userTeam.Key.TeamID = event.Info.Team.ID
-			userTeam.TeamName = event.Info.Team.Name
+			userTeam.Key.SlackID = ev.Info.User.ID
+			userTeam.Key.TeamID = ev.Info.Team.ID
+			userTeam.TeamName = ev.Info.Team.Name
 
 			userTeam.Upsert()
 
@@ -416,14 +418,14 @@ func (user *User) slackMessageHandler(userTeam *database.UserTeam) {
 
 			return
 		case *slack.LatencyReport:
-			user.log.Debugln("latency report:", event.Value)
+			user.log.Debugln("latency report:", ev.Value)
 		case *slack.MessageEvent:
-			key := database.NewPortalKey(userTeam.Key.TeamID, event.Channel)
+			key := database.NewPortalKey(userTeam.Key.TeamID, ev.Channel)
 			portal := user.bridge.GetPortalByID(key)
 			if portal != nil {
 				if portal.MXID == "" {
 					channel, err := userTeam.Client.GetConversationInfo(&slack.GetConversationInfoInput{
-						ChannelID:         event.Channel,
+						ChannelID:         ev.Channel,
 						IncludeLocale:     true,
 						IncludeNumMembers: true,
 					})
@@ -438,35 +440,41 @@ func (user *User) slackMessageHandler(userTeam *database.UserTeam) {
 						continue
 					}
 				}
-				portal.HandleSlackMessage(user, userTeam, event)
+				portal.HandleSlackMessage(user, userTeam, ev)
 			}
 		case *slack.ReactionAddedEvent:
-			key := database.NewPortalKey(userTeam.Key.TeamID, event.Item.Channel)
+			key := database.NewPortalKey(userTeam.Key.TeamID, ev.Item.Channel)
 			portal := user.bridge.GetPortalByID(key)
 			if portal != nil {
-				portal.HandleSlackReaction(user, userTeam, event)
+				portal.HandleSlackReaction(user, userTeam, ev)
 			}
 		case *slack.ReactionRemovedEvent:
-			key := database.NewPortalKey(userTeam.Key.TeamID, event.Item.Channel)
+			key := database.NewPortalKey(userTeam.Key.TeamID, ev.Item.Channel)
 			portal := user.bridge.GetPortalByID(key)
 			if portal != nil {
-				portal.HandleSlackReactionRemoved(user, userTeam, event)
+				portal.HandleSlackReactionRemoved(user, userTeam, ev)
 			}
 		case *slack.UserTypingEvent:
-			key := database.NewPortalKey(userTeam.Key.TeamID, event.Channel)
+			key := database.NewPortalKey(userTeam.Key.TeamID, ev.Channel)
 			portal := user.bridge.GetPortalByID(key)
 			if portal != nil {
-				portal.HandleSlackTyping(user, userTeam, event)
+				portal.HandleSlackTyping(user, userTeam, ev)
+			}
+		case *slack.IMMarkedEvent:
+			key := database.NewPortalKey(userTeam.Key.TeamID, ev.Channel)
+			portal := user.bridge.GetPortalByID(key)
+			if portal != nil {
+				portal.HandleSlackChannelMarked(user, userTeam, ev.User, ev.Timestamp)
 			}
 		case *slack.ChannelMarkedEvent:
-			key := database.NewPortalKey(userTeam.Key.TeamID, event.Channel)
+			key := database.NewPortalKey(userTeam.Key.TeamID, ev.Channel)
 			portal := user.bridge.GetPortalByID(key)
 			if portal != nil {
-				portal.HandleSlackChannelMarked(user, userTeam, event)
+				portal.HandleSlackChannelMarked(user, userTeam, ev.User, ev.Timestamp)
 			}
 		case *slack.RTMError:
-			user.log.Errorln("rtm error:", event.Error())
-			user.BridgeStates[userTeam.Key.TeamID].Send(status.BridgeState{StateEvent: status.StateUnknownError, Message: event.Error()})
+			user.log.Errorln("rtm error:", ev.Error())
+			user.BridgeStates[userTeam.Key.TeamID].Send(status.BridgeState{StateEvent: status.StateUnknownError, Message: ev.Error()})
 		default:
 			user.log.Warnln("unknown message", msg)
 		}

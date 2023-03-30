@@ -3,3 +3,4 @@ slack
 logs/
 mautrix-slack.db
 registration.yaml
+mautrix-slack
